@@ -82,6 +82,16 @@ class MainActivity : AppCompatActivity() {
     /** 网页消息通知的自增 id：同一条消息覆盖同一 id 会让新通知顶掉旧的，故逐条递增。 */
     private var webNotifId = 500
 
+    /**
+     * 当前视为「站内」的主机名。
+     *
+     * 不能只认 BuildConfig.SITE_URL 的那一个字符串：站点常做 301/302
+     * （裸域 → www、预览域 → 正式域、旧域名 → 新域名），跳转后的主机名
+     * 与配置值不同。若不跟随，用户一打开 App 就会被送去系统浏览器。
+     */
+    @Volatile
+    private var siteHost: String? = Uri.parse(SITE_URL).host?.lowercase()
+
     /** 感知桥：把电量/网络/应用名/步数交给网页（边界说明见 PerceptionBridge）。 */
     private val perception by lazy { PerceptionBridge(this) }
 
@@ -306,7 +316,17 @@ class MainActivity : AppCompatActivity() {
                 val scheme = url.scheme ?: return false
                 // 站内导航留在壳里；http(s) 外链和自定义协议（shortcuts:// 等）交给系统
                 if (scheme == "http" || scheme == "https") {
-                    if (url.host == Uri.parse(SITE_URL).host) return false
+                    if (isSameSite(url.host)) return false
+                    // 站点自身发起的域名跳转（裸域 → www、旧域名 → 新域名）：
+                    // 留在 WebView 内，并把跳转后的主机记为站内，后续导航不再外抛。
+                    // 不这样处理的话，启动首页的一次 301 就会把用户甩进浏览器。
+                    if (request.isRedirect) {
+                        val redirectHost = url.host
+                        if (!redirectHost.isNullOrBlank()) {
+                            siteHost = redirectHost.lowercase()
+                            return false
+                        }
+                    }
                     return runCatching {
                         startActivity(Intent(Intent.ACTION_VIEW, url)); true
                     }.getOrDefault(true)
@@ -391,6 +411,23 @@ class MainActivity : AppCompatActivity() {
         val target = consumeOpenUrl(intent) ?: return
         // SPA 已加载：loadUrl 到同页 hash 只触发 hashchange，不会整页重载
         webView.loadUrl(target)
+    }
+
+    /**
+     * 判断某个主机名是否属于本站。
+     *
+     * 除完全相等外，还接受：
+     * - www / 裸域互为别名（https://a.com 与 https://www.a.com 是同一个站）；
+     * - 本站域名的子域名。
+     * 这样 301 到 www、或从 www 跳到裸域时，不会被误判成外链而交给浏览器。
+     */
+    private fun isSameSite(host: String?): Boolean {
+        val target = host?.lowercase() ?: return false
+        val site = siteHost ?: return false
+        return target == site ||
+            target == "www.$site" ||
+            site == "www.$target" ||
+            target.endsWith(".$site")
     }
 
     /**

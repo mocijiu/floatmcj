@@ -27,4 +27,10 @@ tools/weixin-local-assistant/config.txt
 # Tailscale serve cert files (written into cwd by `tailscale cert`)
 *.ts.net.crt
 *.ts.net.key
+
+# Android 签名材料：绝不提交（泄露后他人可伪造更新包）
+*.jks
+*.keystore
+*.p12
+android-shell/keystore.properties
 /public/models/world-builder/
