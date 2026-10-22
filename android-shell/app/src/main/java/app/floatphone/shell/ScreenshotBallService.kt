@@ -494,7 +494,7 @@ class ScreenshotBallService : Service() {
         )
         return NotificationCompat.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("小手机")
+            .setContentTitle("float")
             .setContentText("截屏悬浮球已开启")
             .setOngoing(true)
             .setSilent(true)

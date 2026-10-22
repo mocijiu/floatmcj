@@ -1215,7 +1215,7 @@ class CheckInService : Service() {
         )
         return NotificationCompat.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("小手机")
+            .setContentTitle("float")
             .setContentText("查岗待命：角色想看你时会先弹窗让你决定")
             .setOngoing(true)
             .setSilent(true)

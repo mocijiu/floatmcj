@@ -582,7 +582,7 @@ class CallOverlayService : Service() {
         return NotificationCompat.Builder(this, CH_OVERLAY)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(charName.ifBlank { "通话进行中" })
-            .setContentText(if (metaText.isBlank()) "点按返回小手机" else "$metaText · 点按返回小手机")
+            .setContentText(if (metaText.isBlank()) "点按返回 float" else "$metaText · 点按返回 float")
             .setOngoing(true)
             .setContentIntent(back)
             .setPriority(NotificationCompat.PRIORITY_LOW)

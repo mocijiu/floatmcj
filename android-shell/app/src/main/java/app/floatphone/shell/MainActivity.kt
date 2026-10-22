@@ -344,7 +344,9 @@ class MainActivity : AppCompatActivity() {
             ): WebResourceResponse? {
                 // Netlify 免费版会往页面里注入 HUD 脚本，渲染右下角 "Powered by Netlify"
                 // 徽标和建站推广卡片，网页侧关不掉。壳里直接拦掉，避免遮挡界面。
-                if (request.url.path == "/.netlify/scripts/hud") {
+                // 用 toString + contains 比 url.path 更鲁棒：某些机型上 path 可能返回 null。
+                val url = request.url.toString()
+                if (url.contains("/.netlify/scripts/hud")) {
                     return WebResourceResponse(
                         "application/javascript",
                         "utf-8",
@@ -352,6 +354,37 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
                 return null
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                // 即使上面成功拦截了 hud.js，页面上已有的 DOM 节点（或其他渠道
+                // 挂载的 Netlify 徽章）仍可能残留；这里直接把相关节点从 DOM 里
+                // 踢掉。定时跑几次，因为 HUD 脚本会在初始化后异步插入 iframe。
+                val removeNetlifyHud = """
+                    (function(){
+                        try {
+                            var nodes = document.querySelectorAll(
+                                '.badge-frame, iframe[data-nf-variant], ' +
+                                '[class*="netlify-hud"], [class*="nf-badge"], ' +
+                                '[data-netlify-site-id]'
+                            );
+                            nodes.forEach(function(n){ if(n && n.parentNode) n.parentNode.removeChild(n); });
+                            // 连注入的 script 标签也删，防止后续重试
+                            document.querySelectorAll('script[src*="/.netlify/scripts/hud"]')
+                                .forEach(function(s){ if(s && s.parentNode) s.parentNode.removeChild(s); });
+                        } catch(e){}
+                    })();
+                """.trimIndent()
+                view?.post {
+                    view.evaluateJavascript(removeNetlifyHud, null)
+                    // HUD 脚本异步挂载，迟一点再清两次
+                    listOf(400L, 1200L, 3000L).forEach { delay ->
+                        view.postDelayed({
+                            view.evaluateJavascript(removeNetlifyHud, null)
+                        }, delay)
+                    }
+                }
             }
         }
 
@@ -916,7 +949,7 @@ class MainActivity : AppCompatActivity() {
             val icon = loadAvatarBitmap(avatarUrl)
             val builder = NotificationCompat.Builder(this@MainActivity, CH_MESSAGES)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setContentTitle(title.ifBlank { "小手机" })
+                .setContentTitle(title.ifBlank { "float" })
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setAutoCancel(true)

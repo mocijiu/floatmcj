@@ -32,8 +32,9 @@ android {
         // 1.0.12：截屏可选收件人；位置感知；睡眠（Health Connect）。
         // 1.0.13：站内域名跳转（裸域/www、301/302）不再甩去系统浏览器。
         // 1.0.14：拦掉 Netlify 免费版 HUD 徽标；手机宽度不再渲染桌面版手机外框。
-        versionCode 13
-        versionName "1.0.14"
+        // 1.0.15：Netlify HUD 拦截改为双重保险（请求拦截 + DOM 删除）；通知标题统一 float。
+        versionCode 14
+        versionName "1.0.15"
         buildConfigField "String", "SITE_URL", "\"${siteUrl}\""
     }
 
