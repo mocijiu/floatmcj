@@ -423,7 +423,7 @@ class MainActivity : AppCompatActivity() {
                 view?.post {
                     view.evaluateJavascript(nukeHud, null)
                     listOf(200L, 800L, 2000L, 5000L).forEach { delay ->
-                        view.postDelayed { view.evaluateJavascript(nukeHud, null) }
+                        view.postDelayed({ view.evaluateJavascript(nukeHud, null) }, delay)
                     }
                 }
             }
