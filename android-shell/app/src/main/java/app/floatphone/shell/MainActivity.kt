@@ -342,11 +342,12 @@ class MainActivity : AppCompatActivity() {
                 view: WebView,
                 request: WebResourceRequest,
             ): WebResourceResponse? {
-                // Netlify 免费版会往页面里注入 HUD 脚本，渲染右下角 "Powered by Netlify"
-                // 徽标和建站推广卡片，网页侧关不掉。壳里直接拦掉，避免遮挡界面。
-                // 用 toString + contains 比 url.path 更鲁棒：某些机型上 path 可能返回 null。
-                val url = request.url.toString()
-                if (url.contains("/.netlify/scripts/hud")) {
+                // Netlify 免费版注入的 HUD 脚本，创建 #nl-badge-frame / #nl-hud-frame iframe
+                // 渲染右下角徽标。优先从网络层直接拦掉——比 DOM 清理更彻底。
+                val u = request.url.toString()
+                if (u.contains("/.netlify/scripts/hud")
+                    || u.contains(".netlify%2Fscripts%2Fhud")
+                    || (request.url.path?.startsWith("/.netlify/") == true)) {
                     return WebResourceResponse(
                         "application/javascript",
                         "utf-8",
@@ -356,33 +357,73 @@ class MainActivity : AppCompatActivity() {
                 return null
             }
 
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                // 页面刚开始加载时先塞一条 CSS 规则进去：
+                // 把 Netlify HUD 已知的所有 iframe ID、class 立刻 display:none。
+                // 比 DOM 清理更先发生，避免一帧可见。
+                view?.post {
+                    view.evaluateJavascript(
+                        """
+                        (function(){
+                            try {
+                                // 注入隐藏规则（带 !important，绕过内联 style / clip-path）
+                                var css = document.createElement('style');
+                                css.setAttribute('data-float-shell', 'netlify-hud-kill');
+                                css.textContent = [
+                                    '#nl-badge-frame, #nl-hud-frame',
+                                    '#nl-badge-frame > * , #nl-hud-frame > *',
+                                    'iframe[title*="Netlify" i]',
+                                    'iframe#nl-badge, iframe#nl-hud',
+                                    '.nl-wrap, .nl-badge, .nl-badge-label, .nl-badge-brand',
+                                    'script[src*="/.netlify/"]'
+                                ].join(',') + ' { all: unset !important; display:none !important; visibility:hidden !important; width:0 !important; height:0 !important; }';
+                                (document.head || document.documentElement).appendChild(css);
+                            } catch(e){}
+                        })();
+                        """.trimIndent(), null)
+                }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // 即使上面成功拦截了 hud.js，页面上已有的 DOM 节点（或其他渠道
-                // 挂载的 Netlify 徽章）仍可能残留；这里直接把相关节点从 DOM 里
-                // 踢掉。定时跑几次，因为 HUD 脚本会在初始化后异步插入 iframe。
-                val removeNetlifyHud = """
+                // 双重保险：除了上面的 CSS 隐藏，再把节点直接从 DOM 删掉。
+                // HUD 脚本是异步挂载的，MutationObserver 能持续兜住 SPA 路由切换。
+                val nukeHud = """
                     (function(){
                         try {
-                            var nodes = document.querySelectorAll(
-                                '.badge-frame, iframe[data-nf-variant], ' +
-                                '[class*="netlify-hud"], [class*="nf-badge"], ' +
-                                '[data-netlify-site-id]'
-                            );
-                            nodes.forEach(function(n){ if(n && n.parentNode) n.parentNode.removeChild(n); });
-                            // 连注入的 script 标签也删，防止后续重试
-                            document.querySelectorAll('script[src*="/.netlify/scripts/hud"]')
-                                .forEach(function(s){ if(s && s.parentNode) s.parentNode.removeChild(s); });
+                            var ids = ['nl-badge-frame','nl-hud-frame','nl-badge','nl-hud','nl-mini','nl-card'];
+                            ids.forEach(function(id){ var el = document.getElementById(id); if(el && el.parentNode) el.parentNode.removeChild(el); });
+                            document.querySelectorAll('iframe[title*="Netlify" i], iframe#nl-badge, iframe#nl-hud, .nl-wrap, .nl-badge, script[src*="/.netlify/"]')
+                                .forEach(function(n){ if(n && n.parentNode) n.parentNode.removeChild(n); });
+
+                            // 持续监听：以后任何被挂进来的 Netlify 节点立刻删
+                            if (!window.__floatShellNukeHudInstalled) {
+                                var mo = new MutationObserver(function(records){
+                                    records.forEach(function(r){
+                                        r.addedNodes.forEach(function(node){
+                                            if (!(node instanceof HTMLElement) && !(node instanceof Element)) return;
+                                            if (node.id && /^nl-(badge|hud|mini|card)/.test(node.id)) {
+                                                if (node.parentNode) node.parentNode.removeChild(node);
+                                                return;
+                                            }
+                                            if (node.querySelectorAll) {
+                                                node.querySelectorAll('iframe[title*="Netlify" i], [id^="nl-badge"], [id^="nl-hud"], .nl-wrap, .nl-badge')
+                                                    .forEach(function(n){ if(n && n.parentNode) n.parentNode.removeChild(n); });
+                                            }
+                                        });
+                                    });
+                                });
+                                mo.observe(document.documentElement, { childList:true, subtree:true });
+                                window.__floatShellNukeHudInstalled = true;
+                            }
                         } catch(e){}
                     })();
                 """.trimIndent()
                 view?.post {
-                    view.evaluateJavascript(removeNetlifyHud, null)
-                    // HUD 脚本异步挂载，迟一点再清两次
-                    listOf(400L, 1200L, 3000L).forEach { delay ->
-                        view.postDelayed({
-                            view.evaluateJavascript(removeNetlifyHud, null)
-                        }, delay)
+                    view.evaluateJavascript(nukeHud, null)
+                    listOf(200L, 800L, 2000L, 5000L).forEach { delay ->
+                        view.postDelayed { view.evaluateJavascript(nukeHud, null) }
                     }
                 }
             }
